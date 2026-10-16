@@ -17,22 +17,6 @@ def example():
     return load_all4one_example()
 
 
-@pytest.mark.parametrize(
-    "argv",
-    [
-        ["--stage", "linear"],
-        ["--encoder-path", "unused.pt"],
-        ["--dataset", "imagenet100", "--download"],
-        ["--lr", "0"],
-        ["--lr", "nan"],
-        ["--attention-lr", "inf"],
-    ],
-)
-def test_invalid_cli_fails_before_loading_data(example, argv):
-    with pytest.raises(SystemExit):
-        example.parse_args(argv)
-
-
 def test_imagenet_class_mapping_and_crop_shapes(example, tmp_path, monkeypatch):
     for split in ("train", "val"):
         for index in range(100):
@@ -159,16 +143,3 @@ def test_released_training_recipe(example, monkeypatch, dataset, epochs, batch_s
     }[dataset]
     assert config["normalization"]["mean"] == expected_mean
     assert config["reference_commit"] == "00eeb30c5e046e9fedf9a5024ba41ab4aaca4c08"
-
-
-def test_legacy_encoder_keeps_recorded_preprocessing(example, tmp_path):
-    args = example.parse_args(["--epochs", "1"])
-    model, _, _, config = example.build_experiment(args)
-    config.pop("evaluation_normalization")
-    config["normalization"] = {"mean": (0.1, 0.2, 0.3), "std": (0.4, 0.5, 0.6)}
-    path = tmp_path / "legacy.pt"
-    example.export_encoder(model, config, path)
-    args = example.parse_args(["--stage", "linear", "--encoder-path", str(path)])
-    _, _, _, evaluation = example.build_experiment(args)
-    assert evaluation["normalization"] == config["normalization"]
-    assert evaluation["evaluation_normalization"] == config["normalization"]

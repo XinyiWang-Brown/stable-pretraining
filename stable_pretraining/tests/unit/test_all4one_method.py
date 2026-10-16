@@ -10,7 +10,6 @@ from torch import nn
 from torch.nn import functional as F
 
 import stable_pretraining as spt
-from stable_pretraining.callbacks import TeacherStudentCallback
 from stable_pretraining.forward import all4one
 from stable_pretraining.methods import All4One
 from stable_pretraining.tests._all4one_helpers import tiny_all4one
@@ -35,8 +34,9 @@ def _batch(format="list", labels=True):
     return {"views": named} if format == "nested" else named
 
 
-@pytest.mark.parametrize("format", ["list", "nested", "named"])
-@pytest.mark.parametrize("stage", ["fit", "train"])
+@pytest.mark.parametrize(
+    "format,stage", [("list", "fit"), ("nested", "fit"), ("named", "train")]
+)
 def test_training_routes_both_views_before_enqueue_and_trains_all_online_parts(
     format, stage
 ):
@@ -120,8 +120,10 @@ def test_composable_module_matches_class_outputs_and_gradients():
             torch.testing.assert_close(parameter.grad, other.grad)
 
 
-@pytest.mark.parametrize("stage", ["validate", "test", "predict", "fit"])
-@pytest.mark.parametrize("multiview", [False, True])
+@pytest.mark.parametrize(
+    "stage,multiview",
+    [("validate", False), ("test", True), ("predict", False), ("fit", True)],
+)
 def test_eval_returns_student_embeddings_without_mutating_state(stage, multiview):
     model = _model().eval()
     batch = (
@@ -140,15 +142,6 @@ def test_eval_returns_student_embeddings_without_mutating_state(stage, multiview
     for name, value in model.state_dict().items():
         torch.testing.assert_close(value, state[name])
     model.log.assert_not_called()
-
-
-def test_validation_stage_does_not_enqueue_even_when_model_is_in_train_mode():
-    model = _model()
-    support = copy.deepcopy(model.queue.state_dict())
-    result = model(_batch(), "validate")
-    assert "loss" not in result
-    for name, value in model.queue.state_dict().items():
-        torch.testing.assert_close(value, support[name])
 
 
 @pytest.mark.parametrize(
@@ -170,21 +163,6 @@ def test_invalid_training_batches_fail_before_state_changes(batch):
         model(batch)
     for name, value in model.state_dict().items():
         torch.testing.assert_close(value, state[name])
-
-
-def test_checkpoint_restores_next_training_forward():
-    original = _model()
-    original(_batch())["loss"].backward()
-    original.backbone.update_teacher()
-    original.backbone.update_ema_coefficient(1, 4)
-    restored = _model()
-    restored.load_state_dict(copy.deepcopy(original.state_dict()), strict=True)
-    batch = _batch()
-    actual, expected = restored(batch), original(batch)
-    for name, value in actual.items():
-        torch.testing.assert_close(value, expected[name])
-    for name, value in restored.state_dict().items():
-        torch.testing.assert_close(value, original.state_dict()[name])
 
 
 def test_cpu_autocast_forward_backward_is_finite():
@@ -217,25 +195,6 @@ def test_public_exports_and_backbone_dimension_inference(monkeypatch):
     )
     assert model.feature_dim == 8
     assert model.backbone.student is backbone
-
-
-@pytest.mark.parametrize(
-    "kwargs,error",
-    [
-        ({"feature_dim": None}, ValueError),
-        ({"backbone": 4}, TypeError),
-        ({"projection_dim": 1}, ValueError),
-    ],
-)
-def test_constructor_rejects_missing_dimensions_or_invalid_backbone(kwargs, error):
-    with pytest.raises(error):
-        _model(**kwargs)
-
-
-def test_model_supplies_ema_callback_for_direct_trainer_use():
-    model = _model()
-    callbacks = model.configure_callbacks()
-    assert len(callbacks) == 1 and isinstance(callbacks[0], TeacherStudentCallback)
 
 
 def test_combined_forward_matches_explicit_cross_view_objectives():

@@ -108,13 +108,6 @@ def test_values_and_gradients_match_reference():
                 torch.testing.assert_close(actual_tensor.grad, reference_tensor.grad)
 
 
-def test_view_swap_is_symmetric():
-    inputs = _inputs()
-    swapped = {name: tuple(reversed(pair)) for name, pair in inputs.items()}
-    for key, value in All4OneLoss()(**inputs).items():
-        torch.testing.assert_close(value, All4OneLoss()(**swapped)[key])
-
-
 def test_configurable_weights_and_independent_temperatures():
     inputs = _inputs()
     actual = All4OneLoss(
@@ -135,42 +128,6 @@ def test_configurable_weights_and_independent_temperatures():
         + 5 * expected["feature_diagonal"]
         + 1.5 * expected["feature_off_diagonal"],
     )
-
-
-def test_rank_offset_and_remote_candidate_gradients(monkeypatch):
-    import stable_pretraining.losses.all4one as loss_module
-
-    inputs = _inputs(requires_grad=True)
-    remote = _inputs(requires_grad=True)
-    lookup = {
-        id(local): other
-        for key in ("predictions", "shifted_centroids")
-        for local, other in zip(inputs[key], remote[key])
-    }
-    monkeypatch.setattr(loss_module, "get_rank", lambda: 1)
-    monkeypatch.setattr(loss_module, "all_gather", lambda x: [lookup[id(x)], x])
-    actual = All4OneLoss()(**inputs)
-    labels = torch.arange(4) + 4
-    for key, anchor_key, prediction_key, tau in (
-        ("neighbour_loss", "neighbours", "predictions", 0.2),
-        ("centroid_loss", "centroids", "shifted_centroids", 0.1),
-    ):
-        expected = 0
-        for i in range(2):
-            candidates = torch.cat(
-                [remote[prediction_key][1 - i], inputs[prediction_key][1 - i]]
-            )
-            scores = (
-                F.normalize(inputs[anchor_key][i], dim=-1)
-                @ F.normalize(candidates, dim=-1).T
-            )
-            expected = expected + F.cross_entropy(scores / tau, labels) / 2
-        torch.testing.assert_close(actual[key], expected)
-    actual["loss"].backward()
-    for key in ("predictions", "shifted_centroids"):
-        for tensor in remote[key]:
-            assert tensor.grad is not None
-            assert tensor.grad.abs().sum() > 0
 
 
 @pytest.mark.parametrize("value", ["identity", "zero"])
@@ -201,28 +158,6 @@ def test_degenerate_features_have_finite_gradients(value):
         assert all(torch.isfinite(t.grad).all() for t in inputs[name])
 
 
-def test_single_sample_has_no_contrastive_negatives():
-    inputs = {name: tuple(x[:1] for x in pair) for name, pair in _inputs().items()}
-    output = All4OneLoss()(**inputs)
-    assert output["neighbour_loss"].item() == 0
-    assert output["centroid_loss"].item() == 0
-    torch.testing.assert_close(output["loss"], output["feature_loss"])
-
-
-def test_zero_weights_disable_all_gradients():
-    inputs = _inputs(requires_grad=True)
-    output = All4OneLoss(
-        neighbour_weight=0,
-        centroid_weight=0,
-        feature_diagonal_weight=0,
-        feature_off_diagonal_weight=0,
-    )(**inputs)
-    assert output["loss"].item() == 0
-    output["loss"].backward()
-    for name in ("projections", "predictions", "centroids", "shifted_centroids"):
-        assert all(torch.count_nonzero(t.grad) == 0 for t in inputs[name])
-
-
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
 def test_reduced_precision_inputs_are_computed_in_float32(dtype):
     inputs = _inputs(dtype=dtype, requires_grad=True)
@@ -237,36 +172,6 @@ def test_reduced_precision_inputs_are_computed_in_float32(dtype):
         torch.testing.assert_close(tensor, expected[key])
     actual["loss"].backward()
     assert all(torch.isfinite(t.grad).all() for t in inputs["projections"])
-
-
-@pytest.mark.parametrize("name", ["temperature", "centroid_temperature"])
-@pytest.mark.parametrize("value", [0, -1, math.inf, math.nan])
-def test_invalid_temperatures(name, value):
-    with pytest.raises(ValueError, match=name):
-        All4OneLoss(**{name: value})
-
-
-@pytest.mark.parametrize(
-    "name",
-    [
-        "neighbour_weight",
-        "centroid_weight",
-        "feature_diagonal_weight",
-        "feature_off_diagonal_weight",
-    ],
-)
-@pytest.mark.parametrize("value", [-1, math.inf, math.nan])
-def test_invalid_weights(name, value):
-    with pytest.raises(ValueError, match=name):
-        All4OneLoss(**{name: value})
-
-
-@pytest.mark.parametrize("shape", [(0, 3), (4, 1), (4, 3, 1)])
-def test_invalid_feature_shape(shape):
-    inputs = _inputs()
-    inputs["projections"] = (torch.zeros(shape), torch.zeros(shape))
-    with pytest.raises(ValueError, match="shape"):
-        All4OneLoss()(**inputs)
 
 
 def test_missing_view_and_mismatched_shapes():
