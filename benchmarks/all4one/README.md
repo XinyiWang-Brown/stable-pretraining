@@ -109,8 +109,19 @@ An exported `encoder.pt` is for frozen evaluation, not full training resume.
 A two-epoch smoke-test checkpoint must not be treated as the start of a
 1,000-epoch schedule.
 
-The existing focused suite passed **61 CPU tests**, and the existing two-process
-CPU/Gloo test passed outside the restricted sandbox. GPU/NCCL and multi-seed
-validation remain outstanding. The earlier full unit suite reported 3,801 passes,
-five failures, and 13 skips; the failures have not been verified against unchanged
-upstream. This is not a clean full-suite pass.
+The focused suite passed **61 CPU tests**, and the two-process CPU/Gloo test
+passed with local socket access enabled. Three additional single-GPU FP16 checks
+passed using a tiny synthetic model and an initial gradient scale of 128:
+checkpoint resume matched uninterrupted training (including optimizer, scheduler,
+gradient-scaler, EMA, queue, probe, and step state), and both optimizers updated
+with one EMA update per step, with automatic and explicit EMA callbacks.
+Losses, model state, and unscaled gradients remained finite. These checks do not
+cover multi-GPU/NCCL, overflow recovery, or a multiple-seed benchmark study.
+
+The earlier full unit suite reported **3,801 passed, 5 failed, 13 skipped, and
+170 deselected**. All five failing cases were rerun on All4One commit `c4ab138`
+and unchanged upstream `ab836bf` in the same Quadro RTX 6000 environment.
+Both revisions produced **4 failures and 1 pass**, with matching failure causes:
+home-path alias comparison, two CPU/CUDA tensor mismatches in visualizer tests,
+and CUDA reinitialization in a forked worker. The scanner timeout did not
+reproduce. This is not a clean full-suite pass.

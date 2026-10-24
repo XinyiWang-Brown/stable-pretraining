@@ -1,4 +1,8 @@
-"""All4One with existing data, optimization, and online evaluation utilities.
+"""
+All4One training and evaluation
+========================================
+
+All4One with existing data, optimization, and online evaluation utilities.
 
 Run a small CPU training/evaluation smoke test::
 
