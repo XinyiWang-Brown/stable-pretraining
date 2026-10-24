@@ -1,5 +1,5 @@
 All4One training and reference audit
-===================================
+====================================
 
 The runnable entry point is ``examples/all4one.py``. It supports CIFAR-10,
 CIFAR-100, ImageNet-100, and a small synthetic smoke test. It uses ResNet-18
@@ -108,16 +108,8 @@ must also be supplied by the user for benchmark comparisons.
 Running and evaluating
 ----------------------
 
-On Oscar, the full CIFAR-10 launcher runs pretraining and then a separate
-100-epoch frozen linear evaluation in the same allocation::
-
-    sbatch examples/all4one_cifar10_full.slurm
-
-Evaluation starts only after successful pretraining and a nonempty encoder
-export. The job log marks both stages; outputs are separated under
-``pretrain/`` and ``linear/``. Request enough wall time for both stages.
-The single-stage ``all4one_oscar.slurm`` launcher also accepts ``linear`` to
-evaluate an already exported encoder without repeating pretraining.
+See ``benchmarks/all4one/README.md`` for setup, commands using the existing
+example, recorded single-seed results, and available source/environment evidence.
 
 Pretraining (dataset already present)::
 
